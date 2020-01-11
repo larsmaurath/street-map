@@ -1,0 +1,269 @@
+---
+title: "München's Straßen und ihre Geschichte(n)"
+output: 
+  flexdashboard::flex_dashboard:
+    storyboard: true
+    navbar:
+      - { icon: "fa-backspace", href: "https://larsmaurath.github.io/projects/", align: right }
+      - { icon: "fa-github", href: "https://github.com/larsmaurath/larsmaurath.github.io", align: right }
+---
+<style>                     
+.navbar {
+  background-color:white;
+  border-color:black;
+  color:black;
+}
+.navbar-brand {
+  color:black!important;
+}
+.fa-github {
+  color:black!important;
+}
+.fa-backspace {
+  color:black!important;
+}
+</style>  
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(osmdata) # fetching OpenStreetmap-data
+library(leaflet) # display interactive maps
+library(sf)      # spatial features library
+library(forcats) # optional, tidyverse factor-manipulation
+```
+
+```{r, Load_Street_Info}
+streets_info <- read_csv("munich_street_info.csv", col_types = "ccccccccccccc")
+```
+
+```{r, Load_OSM_data}
+bb <- getbb('Munich, Germany', format_out = 'polygon')
+
+q <- opq(bbox = bb) %>%
+  add_osm_feature(key = 'highway') %>% 
+  add_osm_feature(key = 'name') %>% 
+  osmdata_sf() %>%
+  trim_osmdata (bb)
+```
+
+```{r, Merge_street_info_with_OSM_data}
+street_names <- as.character(streets_info$name)
+
+streets = q$osm_lines %>%
+  select(name) %>%
+  filter(name %in% street_names) 
+
+# fix plot issue: https://stackoverflow.com/a/50846998/125085
+names(streets$geometry) <- NULL 
+
+streets <- streets %>%
+  mutate(name = forcats::fct_drop(name)) %>% # Drop unused levels in name-variable w/t forcats::fct_drop():
+  arrange(name)
+
+streets_merged <- streets %>%
+  dplyr::group_by(name) %>%
+  dplyr::summarise()
+
+streets_merged$name <- as.character(streets_merged$name)
+
+streets_merged_ext <- left_join(streets_merged, streets_info, by = "name")
+```
+
+```{r, Define_Common_Leaflet_Items}
+popup_string <- paste0(
+  ifelse(!is.na(streets_merged_ext$name),
+         paste0("<b>Straße: </b>",
+                streets_merged_ext$name,
+                "<br>"),
+         ""),
+  ifelse(!is.na(streets_merged_ext$benannt_nach),
+         paste0("<b>Benannt Nach: </b>",
+                streets_merged_ext$benannt_nach,
+                "<br>"),
+         ""),
+  ifelse(!is.na(streets_merged_ext$typ),
+         paste0("<b>Typ: </b>",
+                streets_merged_ext$typ,
+                "<br>"),
+         ""),
+  ifelse(!is.na(streets_merged_ext$beschreibung),
+         paste0("<b>Beschreibung: </b>",
+                paste0(substr(streets_merged_ext$beschreibung, start = 1, stop = 300), "...", paste0("<a href=", streets_merged_ext$wiki_link, ">mehr</a>")),
+                "<br>"),
+         ""),
+  ifelse(!is.na(streets_merged_ext$img_link),
+         paste0(  "<img src = https:", streets_merged_ext$img_link, " width='100'>",
+                  "<br>",
+                  streets_merged_ext$img_text),
+         "")
+)
+```
+
+**Daten und Methodik:** Startpunkt für die Zusammenstellung der Informationen für einzelne Straßen war die [Liste Münchner Straßennamen](https://www.muenchenwiki.de/wiki/Liste_M%C3%BCnchner_Stra%C3%9Fennamen). Die weiterführenden Artikel auf [muenchenwiki](https://www.muenchenwiki.de/) enthalten erste Hintergründe über Straßennamen und oftmals Links zu Wikipediaseiten mit zusätzlichen Informationen. Von diesen Wikipediaseiten stammen auch die Kategorisierung und Bildlinks. Zu einem späteren Zeitpunkt wurden die Daten mit zusätzlichen Information von [stadt-muenchen.net](https://stadt-muenchen.net/strassen/) ergänzt. Die Karte wurde erstellt mit [Leaflet](https://rstudio.github.io/leaflet/) und [OpenStreetMap](https://de.wikipedia.org/wiki/OpenStreetMap). Die Webseite wurde erstellt mit [Shiny](https://shiny.rstudio.com/). Leider sind die Daten mit allen Kategorisierungen nicht vollständig da die Anzahl der Straßen zu groß ist um sie manuell zu überprüfen. Die zugrundeliegenden Daten können [hier]() heruntergeladen werden, der dazugehörige Code [hier](). 
+
+### Nach Suffix
+
+```{r}
+factpal <- colorFactor("Paired", streets_merged_ext$suffix, na.color = NA)
+
+leaflet(streets_merged_ext) %>%
+  addProviderTiles(providers$CartoDB.Positron, options = tileOptions(minZoom = 11, maxZoom = 16)) %>%
+  addPolylines(
+    label = ~name,
+    weight = 2,
+    color = ~factpal(suffix),
+    popup = popup_string,
+    highlight = highlightOptions(color = "red"),
+    opacity = 0.7,
+    fillOpacity = 0.2) %>%
+  addLegend("bottomright", pal = factpal, values = ~suffix,
+    title = "Suffix",
+    opacity = 1
+  )
+```
+
+*** 
+
+München's Straßensuffixe weisen keine besondere Regelmäßigkeiten auf, wie das zum Beispiel in [San Francisco](https://erdaviscom.files.wordpress.com/2019/07/sf.png) oder [London](https://erdaviscom.files.wordpress.com/2019/09/london.png) der Fall ist. 
+
+Ein Großteil des Straßennetzes trägt auch wirklich den Namen *Straße*. Einige wenige *Alleen* stechen heraus. In Randbezirken mehren sich auch Straßen mit der Bezeichnung *Weg*. 
+
+### Nach Typ des Namensgebers
+
+```{r}
+factpal <- colorFactor("Dark2", streets_merged_ext$typ, na.color = NA)
+
+leaflet(streets_merged_ext) %>%
+  addProviderTiles(providers$CartoDB.Positron, options = tileOptions(minZoom = 11, maxZoom = 16)) %>%
+  addPolylines(
+    label = ~name,
+    weight = 2,
+    color = ~factpal(typ),
+    popup = popup_string,
+    highlight = highlightOptions(color = "red"),
+    opacity = 0.7,
+    fillOpacity = 0.2) %>%
+  addLegend("bottomright", pal = factpal, values = ~typ,
+    title = "Typ",
+    opacity = 1
+  )
+```
+
+*** 
+
+Ein Großteil der Münchner Straßen sind nach Personen benannt. Zu diesen Straßen gibt es auf den nächsten Seiten noch mehr Informationen. 
+
+Auffallend ist das Straßen nach sachlichem Bezug gruppiert sind. Wir sehen das zum Beispiel im bekannten *Franzosenviertel in Haidhausen* in dem alle Straßen nach franzöischen Städten oder Ortschaften benannt sind. Diese Praxis soll die [Auffindbarkeit von Straßen erleichtern](https://www.muenchen.de/rathaus/Stadtverwaltung/Kommunalreferat/geodatenservice/strassennamen/entstehung.html). 
+
+In Lerchenau und im benachbarten Fasarnenviertel sind einige Blöcke nach Pflanzen benannt (siehe auch Bereiche in Großhadern und Kleinhadern). 
+
+Interessant ist auch ein Teil von Denning dessen Straßen nach polnischen Städten und Gemeinden benannt sind. In den äußeren Bezirken mehren sich Straßen mit einem Bezug zu Flurnamen, also Straßen die nach ihrer direkten Umgebung benannt sind (z.B. in Lochhausen und Langenwied).
+
+### Nach Geschlecht des Namensgebers
+
+```{r}
+factpal <- colorFactor("Dark2", streets_merged_ext$geschlecht, na.color = NA)
+
+leaflet(streets_merged_ext) %>%
+  addProviderTiles(providers$CartoDB.Positron, options = tileOptions(minZoom = 11, maxZoom = 16)) %>%
+  addPolylines(
+    label = ~name,
+    weight = 2,
+    color = ~factpal(geschlecht),
+    popup = popup_string,
+    highlight = highlightOptions(color = "red"),
+    opacity = 0.7,
+    fillOpacity = 0.2) %>%
+  addLegend("bottomright", pal = factpal, values = ~geschlecht,
+    title = "Geschlecht",
+    opacity = 1
+  )
+```
+
+*** 
+
+Wir zoomen nun hinein auf die Untergruppe des Straßennetzes dass nach Personen benannt ist. Als erste Dimension untersuchen wir den Split nach Geschlecht. 
+
+Ein Großteil der personenbezogenen Namensgeber sind Männer. Ein Missstand der schon in einem [Artikel](https://www.sueddeutsche.de/muenchen/nach-frauen-benannte-strassen-muenchner-schildbuergerinnen-1.1168027) der Süddeutschen bemängelt wurde. In 2011 zählten die Autoren ungefähr 2500 Straßen benannt nach Männern und nur rund 200 nach Frauen.
+
+### Nach Beruf des Namensgebers
+
+```{r}
+factpal <- colorFactor("Dark2", streets_merged_ext$beruf, na.color = NA)
+
+leaflet(streets_merged_ext) %>%
+  addProviderTiles(providers$CartoDB.Positron, options = tileOptions(minZoom = 11, maxZoom = 16)) %>%
+  addPolylines(
+    label = ~name,
+    weight = 2,
+    color = ~factpal(beruf),
+    popup = popup_string,
+    highlight = highlightOptions(color = "red"),
+    opacity = 0.7,
+    fillOpacity = 0.2) %>%
+  addLegend("bottomright", pal = factpal, values = ~beruf,
+    title = "Beruf",
+    opacity = 1
+  )
+```
+
+*** 
+
+Auffällig in dieser Ansicht ist wieder, dass sich Kategorien häufen. 
+
+Im Herzogpark genauso wie in Neubiberg sind Straßen nach Autoren benannt. In Allach häufen sich Wissenschaftler. 
+
+Die großen Alleen wie die Leopoldstraße und die Prinzregentenstraße sind Adeligen vorbehalten.
+
+### Nach Todesjahr des Namensgebers
+
+```{r}
+factpal <- colorFactor("Dark2", streets_merged_ext$todesepoche, na.color = NA)
+
+leaflet(streets_merged_ext) %>%
+  addProviderTiles(providers$CartoDB.Positron, options = tileOptions(minZoom = 11, maxZoom = 16)) %>%
+  addPolylines(
+    label = ~name,
+    weight = 2,
+    color = ~factpal(todesepoche),
+    popup = popup_string,
+    highlight = highlightOptions(color = "red"),
+    opacity = 0.7,
+    fillOpacity = 0.2) %>%
+  addLegend("bottomright", pal = factpal, values = ~todesepoche,
+    title = "Todesjahr",
+    opacity = 1
+  )
+```
+
+*** 
+
+Ein Großteil der geehrten Persönlichkeiten lebten in der zweiten Hälfte des 19. und der ersten Hälfte des 20. Jahrhunderts. 
+
+Dies wird sowohl durch das rasche Wachstum Münchens in dieser Zeit (Bevölkerung 1871: 170000, Bevölkerung 1933: 840000) als auch durch die Entnazifizierung der Straßennamen in der Folge des 2. Weltkrieges ausgelöst sein. 
+
+Modernere Namensgeber lassen sich wie erwartet vor allem in neueingemeindeten oder neuerschlossenen Stadtteilen finden (Neuperlach, Freimann, Riem).
+
+### Explore
+
+```{r}
+leaflet(streets_merged_ext) %>%
+  addProviderTiles(providers$CartoDB.Positron, options = tileOptions(minZoom = 11, maxZoom = 16)) %>%
+  addPolylines(
+    label = ~name,
+    weight = 2,
+    color = "lightgrey",
+    popup = popup_string,
+    highlight = highlightOptions(color = "red"),
+    opacity = 0.7,
+    fillOpacity = 0.2)
+```
+
+*** 
+
+Erkunde selbst die Straßen München's: 
+
+Fahre mit der Maus über die Straßen um die Straßennamen zu sehen. 
+
+Klicke auf eine Straße für detaillierte Informationen über den Namensgeber.
