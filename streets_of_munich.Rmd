@@ -89,7 +89,7 @@ popup_string <- paste0(
          ""),
   ifelse(!is.na(streets_merged_ext$beschreibung),
          paste0("<b>Beschreibung: </b>",
-                paste0(substr(streets_merged_ext$beschreibung, start = 1, stop = 300), "...", paste0("<a href=", streets_merged_ext$wiki_link, ">mehr</a>")),
+                paste0(substr(streets_merged_ext$beschreibung, start = 1, stop = 300), "...", paste0("<a href='", streets_merged_ext$wiki_link, "' target='_blank'>mehr</a>")),
                 "<br>"),
          ""),
   ifelse(!is.na(streets_merged_ext$img_link),
